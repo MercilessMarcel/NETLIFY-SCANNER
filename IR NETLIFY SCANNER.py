@@ -83,30 +83,35 @@ def main():
     completed = 0
     found_count = 0
     ip_stats = Counter()
+    seen_domains = set()
+    seen_ips = set()
+
+    with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
+        try:
+            futures = {executor.submit(check_pair, ip, domain): (ip, domain) for ip, domain in tasks}
+            for future in as_completed(futures):
+                res = future.result()
+                completed += 1
+
+                sys.stdout.write(f"\r{BOLD}{C_MAGENTA}  [PROGRESS]{RESET} {completed}/{total} | {BOLD}{C_GREEN}FOUND: {found_count}{RESET}  ")
+                sys.stdout.flush()
+
+                if res:
+                    ip, dom, status = res
+                    found_count += 1
+                    ip_stats[ip] += 1
+                    seen_domains.add(dom)
+                    seen_ips.add(ip)
+                    sys.stdout.write(f"\r{' ' * 80}\r")
+                    status_color = C_GREEN if status == "OK" else C_RED
+                    print(f"  {C_GREEN}✔{RESET} {BOLD}{ip:<15}{RESET} → {dom:<25} ({status_color}{status}{RESET})")
+        except KeyboardInterrupt:
+            print(f"\n\n{C_RED}[!] Operation cancelled by user.{RESET}")
+            executor.shutdown(wait=False)
 
     with open("scan_results.txt", "w") as f:
-        with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-            try:
-                futures = {executor.submit(check_pair, ip, domain): (ip, domain) for ip, domain in tasks}
-                for future in as_completed(futures):
-                    res = future.result()
-                    completed += 1
-
-                    sys.stdout.write(f"\r{BOLD}{C_MAGENTA}  [PROGRESS]{RESET} {completed}/{total} | {BOLD}{C_GREEN}FOUND: {found_count}{RESET}  ")
-                    sys.stdout.flush()
-
-                    if res:
-                        ip, dom, status = res
-                        found_count += 1
-                        ip_stats[ip] += 1
-                        sys.stdout.write(f"\r{' ' * 80}\r") # Clear current line
-                        status_color = C_GREEN if status == "OK" else C_RED
-                        print(f"  {C_GREEN}✔{RESET} {BOLD}{ip:<15}{RESET} → {dom:<25} ({status_color}{status}{RESET})")
-                        f.write(f"{ip} {dom} {status}\n")
-                        f.flush()
-            except KeyboardInterrupt:
-                print(f"\n\n{C_RED}[!] Operation cancelled by user.{RESET}")
-                executor.shutdown(wait=False)
+        if seen_domains or seen_ips:
+            f.write("\n".join(sorted(seen_domains)) + "\n\n\n" + "\n".join(sorted(seen_ips)))
 
     if found_count > 0:
         top_ip = ip_stats.most_common(1)[0]
